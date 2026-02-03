@@ -23,11 +23,8 @@ local screen = gba_screen.new(SCALE, "GBA")
 local window = screen:GetWindow()
 
 -- canvas.data：240*160*4 扁平数组，RGBA；需要绘制时由视频模块填充，drawCallback 被调用
-local canvas = { data = {} }
-local drawCallbackFrameCount = 0
-local drawCallback = function()
-    drawCallbackFrameCount = drawCallbackFrameCount + 1
-    print(string.format("[DRAW] drawCallback 帧%d ", drawCallbackFrameCount))
+local canvas = { data = {} } 
+local drawCallback = function() 
     screen:Update(canvas.data)
 end
 emu:setCanvas(canvas, drawCallback)
@@ -41,10 +38,14 @@ if not success then
     return
 end
 
--- 按键：ESC 关闭窗口，其余由 keypad 处理
+-- 按键：ESC 关闭窗口，F 切换跳帧，其余由 keypad 处理
 local function onKey(win, key, scancode, action, mods)
     if key == 'escape' and action == 'press' then
         glfw.set_window_should_close(win, true)
+    elseif key == 'f' and action == 'press' then
+        local skip = (emu:getFrameSkip() + 1) % 10  -- 0,1,2,3 循环
+        emu:setFrameSkip(skip)
+        print(string.format("跳帧: %d (每%d帧渲染1帧)", skip, skip + 1))
     end
 end
 emu.keypad:registerHandlers(window, onKey)
@@ -95,10 +96,23 @@ end
 -- 设置存档目录为当前工作目录（与 ROM 同目录）
 emu.saveDir = "."
 
+-- FPS 显示：每帧更新标题栏
+local fpsFrames = 0
+local fpsLastTime = os.clock()
+local fpsUpdateInterval = 0.5  -- 每 0.5 秒更新一次 FPS 显示
+
 print("Starting GBA (window open, ESC to exit)...")
 while not glfw.window_should_close(window) do
     glfw.poll_events()
-    emu.keypad:pollGamepads()
     emu:advanceFrame()
+
+    fpsFrames = fpsFrames + 1
+    local now = os.clock()
+    if now - fpsLastTime >= fpsUpdateInterval then
+        local fps = fpsFrames / (now - fpsLastTime)
+        fpsFrames = 0
+        fpsLastTime = now
+        screen:SetTitle(string.format("GBA - %.1f FPS", fps))
+    end
 end
 screen:Quit()

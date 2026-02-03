@@ -14,9 +14,6 @@ function DataView:getUint8(offset)
     -- addr >> 2 相当于 math.floor(addr / 4)
     -- (addr & 3) << 3 相当于 (addr % 4) * 8
     local v =self.buffer[addr >> 2]
-    if not v then
-        return default_value
-    end
     return (v >> ((addr & 3) << 3)) & 0xff
 end
 
@@ -30,9 +27,6 @@ function DataView:getUint16(offset, le)
     local idx = addr >> 2
     local shift = (addr & 3) << 3
     local v =self.buffer[idx]
-    if not v then
-        return default_value
-    end
     if shift <= 16 then
         -- 数据在同一个 32 位词内
         return (self.buffer[idx] >> shift) & 0xffff
@@ -52,8 +46,7 @@ end
 
 -- 返回 32 位整数(arm7tdmi is 32bit so not to do signext)
 function DataView:getInt32(offset, le)
-    local v =self.buffer[(self.byteOffset + offset) >> 2]
-    return v and v & 0xffffffff or default_value
+    return self.buffer[(self.byteOffset + offset) >> 2] & 0xffffffff
     --return self.buffer[(self.byteOffset + offset) >> 2] & 0xffffffff
     --return v > 0x7fffffff and v - 0x100000000 or v
 end
@@ -66,10 +59,6 @@ function DataView:setInt8(offset, value)
     local shift = (addr & 3) << 3
     local mask = ~(0xff << shift)
     local v = self.buffer[idx]
-    if not v then
-        v=default_value
-        self.buffer[idx]=v
-    end
     self.buffer[idx] = (v & mask) | ((value & 0xff) << shift)
 end
 
@@ -78,19 +67,11 @@ function DataView:setUint16(offset, value, le)
     local idx = addr >> 2
     local shift = (addr & 3) << 3
     local v = self.buffer[idx]
-    if not v then
-        v = default_value
-        self.buffer[idx] = v
-    end
     if shift <= 16 then
         local mask = ~(0xffff << shift)
         self.buffer[idx] = (v & mask) | ((value & 0xffff) << shift)
     else
         local v1 = self.buffer[idx + 1]
-        if not v1 then
-            v1 = default_value
-            self.buffer[idx + 1] = v1
-        end
         -- 跨词写入
         self.buffer[idx] = (v & 0x00ffffff) | ((value & 0xff) << 24)
         self.buffer[idx + 1] = (v1 & 0xffffff00) | ((value >> 8) & 0xff)
@@ -102,19 +83,11 @@ function DataView:setInt16(offset, value, le)
     local idx = addr >> 2
     local shift = (addr & 3) << 3
     local v = self.buffer[idx]
-    if not v then
-        v=default_value
-        self.buffer[idx]=v
-    end
     if shift <= 16 then
         local mask = ~(0xffff << shift)
         self.buffer[idx] = (v & mask) | ((value & 0xffff) << shift)
     else
         local v1 = self.buffer[idx + 1]
-        if not v1 then
-            v1=default_value
-            self.buffer[idx+1]=v1
-        end
         -- 跨词写入
         self.buffer[idx] = (v & 0x00ffffff) | ((value & 0xff) << 24)
         self.buffer[idx + 1] = (v1 & 0xffffff00) | ((value >> 8) & 0xff)

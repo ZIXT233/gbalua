@@ -83,12 +83,12 @@ function ARMCore:resetCPU(startOffset)
         --debugprint(string.format("step: PC=%X", gprs[self.PC]-self.instructionWidth))
         if not instruction then
             instruction = self:loadInstruction(
-                gprs[self.PC] - self.instructionWidth
+                gprs[15] - self.instructionWidth
             );
             self.instruction = instruction;
         end
  
-		gprs[self.PC] = gprs[self.PC] + self.instructionWidth;
+		gprs[15] = gprs[15] + self.instructionWidth;
 		self.conditionPassed = true;
 		instruction();
 
@@ -99,7 +99,7 @@ function ARMCore:resetCPU(startOffset)
 					-- We might have gotten an interrupt from the instruction
 					if instruction.next == nil or instruction.next.page.invalid then
 						instruction.next = self:loadInstruction(
-							gprs[self.PC] - self.instructionWidth
+							gprs[15] - self.instructionWidth
 						);
                     end
 					self.instruction = instruction.next;
@@ -108,7 +108,7 @@ function ARMCore:resetCPU(startOffset)
             --debugprint("writepc")
 
 				if self.conditionPassed then
-					local pc = (gprs[self.PC] & 0xfffffffe);
+					local pc = (gprs[15] & 0xfffffffe);
                     gprs[self.PC] = pc;
 					if self.execMode == self.MODE_ARM then
 						mmu:wait32(pc);
@@ -117,21 +117,84 @@ function ARMCore:resetCPU(startOffset)
 						mmu:wait(pc);
 						mmu:waitPrefetch(pc);
 					end
-					gprs[self.PC] = gprs[self.PC] + self.instructionWidth;
+					gprs[15] = gprs[15] + self.instructionWidth;
 					if not instruction.fixedJump then
 						self.instruction = nil;
 					elseif self.instruction ~= nil then
 						if instruction.next == nil or instruction.next.page.invalid then
 							instruction.next = self:loadInstruction(
-								gprs[self.PC] - self.instructionWidth
+								gprs[15] - self.instructionWidth
 							);
 						end
 						self.instruction = instruction.next;
 					end
+				else
+					self.instruction = nil;
 				end
-				self.instruction = nil;
 		end
 		self.irq:updateTimers();
+    end
+    local gba = self.gba
+    local gprs = self.gprs
+    local irq = self.irq
+    local mmu = self.mmu
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32
+    local waitstatesPrefetch = mmu.waitstatesPrefetch
+    local waitstates32 = mmu.waitstates32
+    local waitstates = mmu.waitstates
+    self.run_until_vblank = function()
+        while not gba.seenFrame do
+            local instruction = self.instruction;
+            if not instruction then
+                instruction = self:loadInstruction(
+                gprs[15] - self.instructionWidth
+            );
+                self.instruction = instruction; 
+            end 
+            gprs[15] = gprs[15] + self.instructionWidth;
+            self.conditionPassed = true;
+            instruction();
+            if not instruction.writesPC then
+                if self.instruction ~= nil then 
+                    if instruction.next == nil or instruction.next.page.invalid then
+                        instruction.next = self:loadInstruction(
+                            gprs[15] - self.instructionWidth
+                        );
+                    end
+                    self.instruction = instruction.next;
+                end
+            else
+                if self.conditionPassed then
+                    local pc = (gprs[15] & 0xfffffffe);
+                    gprs[15] = pc;
+                    -- thumb = true , arm = false
+                    if self.execMode then
+                        self.cycles = self.cycles + 1 + waitstates[pc >> 24];
+                        self.cycles = self.cycles + 1 + waitstatesPrefetch[pc >> 24];
+                    else
+                        self.cycles = self.cycles + 1 + waitstates32[pc >> 24];
+                        self.cycles = self.cycles + 1 + waitstatesPrefetch32[pc >> 24];
+                    end
+                    gprs[15] = gprs[15] + self.instructionWidth;
+                    if not instruction.fixedJump then
+                        self.instruction = nil;
+                    elseif self.instruction ~= nil then
+                        if instruction.next == nil or instruction.next.page.invalid then
+                            instruction.next = self:loadInstruction(
+                                gprs[15] - self.instructionWidth
+                            );
+                        end
+                        self.instruction = instruction.next;
+                    end
+                else
+                    self.instruction = nil;
+                end
+            end
+            if irq.nextEvent <= self.cycles then
+                irq:updateTimers();
+            end
+        end  
+        gba.seenFrame = false
     end
 end
 

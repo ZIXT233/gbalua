@@ -613,12 +613,6 @@ function GameBoyAdvanceMMU:serviceDma(number, info)
 		-- There was a DMA scheduled that got canceled
 		return;
 	end
-	if self.core.debugHooks and self.core.debugHooks.dma then
-		local srcR = info.nextSource >> self.BASE_OFFSET
-		local dstR = info.nextDest >> self.BASE_OFFSET
-		print(string.format("[DMA%d execute] src=0x%08X(region%X) dst=0x%08X(region%X) words=%d %dbit",
-			number, info.nextSource, srcR, info.nextDest, dstR, info.nextCount, info.width * 8))
-	end
 
 	local width = info.width;
 	local sourceOffset = self.DMA_OFFSET[info.srcControl] * width;

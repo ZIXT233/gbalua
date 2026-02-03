@@ -46,8 +46,22 @@ function GameBoyAdvanceVideo:ctor()
 	self.drawCallback = function() end
 	self.vblankCallback = function() end
 
+	-- 跳帧渲染：frameSkip=0 不跳帧，1 每2帧渲染1帧，2 每3帧渲染1帧...
+	self.frameSkip = 0
+	self.frameCounter = 0
+	self.renderThisFrame = true
+
 	-- vcount 分支表（在 ctor 中构建一次，避免每次 updateTimers 重建）
 	self.vcountHandlers = self:buildVcountHandlers()
+end
+
+-- 设置跳帧数：0=不跳帧，1=每2帧渲染1帧，2=每3帧渲染1帧...
+function GameBoyAdvanceVideo:setFrameSkip(skip)
+	self.frameSkip = (skip >= 0) and skip or 0
+end
+
+function GameBoyAdvanceVideo:getFrameSkip()
+	return self.frameSkip
 end
 
 function GameBoyAdvanceVideo:clear()
@@ -72,6 +86,9 @@ function GameBoyAdvanceVideo:clear()
 	self.nextHblankIRQ = 0
 	self.nextVblankIRQ = 0
 	self.nextVcounterIRQ = 0
+
+	self.frameCounter = 0
+	self.renderThisFrame = true
 end
 
 function GameBoyAdvanceVideo:freeze()
@@ -134,7 +151,9 @@ function GameBoyAdvanceVideo:buildVcountHandlers()
 		[video.VERTICAL_PIXELS] = function()
 			-- 进入 VBlank
 			video.inVblank = true
-			video.renderPath:finishDraw(video)
+			if video.renderThisFrame then
+				video.renderPath:finishDraw(video)
+			end
 			video.nextVblankIRQ = video.nextEvent + video.TOTAL_LENGTH
 			video.cpu.mmu:runVblankDmas()
 			if video.vblankIRQ ~= 0 then
@@ -147,6 +166,8 @@ function GameBoyAdvanceVideo:buildVcountHandlers()
 		end,
 		[video.VERTICAL_TOTAL_PIXELS] = function()
 			video.vcount = 0
+			video.frameCounter = video.frameCounter + 1
+			video.renderThisFrame = (video.frameCounter % (video.frameSkip + 1)) == 0
 			video.renderPath:startDraw()
 		end
 	}
@@ -178,10 +199,7 @@ function GameBoyAdvanceVideo:updateTimers(cpu)
 				self.nextVcounterIRQ = self.nextVcounterIRQ + self.TOTAL_LENGTH
 			end
 
-			if self.vcount < self.VERTICAL_PIXELS then
-				if VIDEO_DEBUG and self.renderPath._ppuDebugFrame and self.renderPath._ppuDebugFrame <= VIDEO_DEBUG_FRAME_MAX and (self.vcount == 0 or self.vcount == 79 or self.vcount == 159) then
-					videoLog("SCAN", "drawScanline y=%d", self.vcount)
-				end
+			if self.vcount < self.VERTICAL_PIXELS and self.renderThisFrame then
 				self.renderPath:drawScanline(self.vcount)
 			end
 		else

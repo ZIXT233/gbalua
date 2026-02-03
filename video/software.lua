@@ -67,7 +67,7 @@ end
 
 function MemoryAligned16:loadU8(offset)
     local index = offset >> 1
-    local val = self.buffer[index] or 0
+    local val = self.buffer[index]
     if (offset & 1) ~= 0 then
         return (val & 0xFF00) >> 8
     else
@@ -76,13 +76,13 @@ function MemoryAligned16:loadU8(offset)
 end
 
 function MemoryAligned16:loadU16(offset)
-    return self.buffer[offset >> 1] or 0
+    return self.buffer[offset >> 1]
 end
 
 function MemoryAligned16:load32(offset)
     local index = offset >> 1
-    local lower = self.buffer[index & ~1] or 0
-    local upper = self.buffer[index | 1] or 0
+    local lower = self.buffer[index & ~1]
+    local upper = self.buffer[index | 1]
     return lower | (upper << 16)
 end
 
@@ -296,11 +296,13 @@ function GameBoyAdvancePalette:mix(aWeight, aColor, bWeight, bColor)
     local bg = (bColor & 0x03E0) >> 5
     local bb = (bColor & 0x7C00) >> 10
 
-    local r = math.min(aWeight * ar + bWeight * br, 0x1F)
-    local g = math.min(aWeight * ag + bWeight * bg, 0x1F)
-    local b = math.min(aWeight * ab + bWeight * bb, 0x1F)
-
-    return math.floor(r) | (math.floor(g) << 5) | (math.floor(b) << 10)
+    local r =(aWeight * ar + bWeight * br) >> 4
+    local g = (aWeight * ag + bWeight * bg) >> 4
+    local b = (aWeight * ab + bWeight * bb) >> 4
+    if r > 0x1F then r = 0x1F end
+    if g > 0x1F then g = 0x1F end
+    if b > 0x1F then b = 0x1F end
+    return r | (g << 5) | (b << 10)
 end
 
 function GameBoyAdvancePalette:makeDarkPalettes(layers)
@@ -424,6 +426,7 @@ function GameBoyAdvanceOBJ:ctor(oam, index)
     self.cachedWidth = 8
     self.cachedHeight = 8
 end
+
 
 function GameBoyAdvanceOBJ:drawScanlineNormal(backing, y, yOff, start, endPoint)
     local video = self.oam.video
@@ -638,12 +641,7 @@ function GameBoyAdvanceOBJLayer:ctor(video, index)
     self.enabled = false
     self.objwin = 0
     self.drawScanline = function(backing, layer, start, endPoint)
-        self:_drawScanline(backing, layer, start, endPoint)
-    end
-end
-
-function GameBoyAdvanceOBJLayer:_drawScanline(backing, layer, start, endPoint)
-    local y = self.video.vcount
+        local y = self.video.vcount
     local wrappedY
     local mosaicY
     local obj
@@ -689,119 +687,157 @@ function GameBoyAdvanceOBJLayer:_drawScanline(backing, layer, start, endPoint)
             end
         end
     end
+    end
 end
+
 
 --------------------------------------------------------------------------------
 -- pushPixel (Local function, logic moved from static class method)
 --------------------------------------------------------------------------------
 pushPixel = function(layer, map, video, row, x, offset, backing, mask, raw)
     local index
-    if not raw then
-        -- 8bpp 时 row 仅 32 位（4 像素），Lua 的 row>>32 得 0，JS 因移位截断得 row>>0
-        -- 统一将 x 限制在 0-3，避免 shift>=32 导致黑条纹
-        local shiftX = x
-        if (video.bg[layer] and video.bg[layer].multipalette) or map.multipalette then
-            shiftX = x & 0x3
-        end
-        if video.bg[layer] and video.bg[layer].multipalette then
-             index = (row >> (shiftX << 3)) & 0xFF
+    
+    -- 1. 提取索引 & 透明度快速检查 (最频繁的退出路径)
+    if raw then
+        index = 0 -- raw 模式下 index 不参与透明判断，由调用者保证非空或不用
+    else
+        -- 优化：合并 multipalette 判断逻辑
+        -- 注意：x & 3 是为了防止 8bpp 下 x>=4 导致移位溢出
+        if map.multipalette or (video.bg[layer] and video.bg[layer].multipalette) then
+             index = (row >> ((x & 0x3) << 3)) & 0xFF
         else
-             if map.multipalette then
-                index = (row >> (shiftX << 3)) & 0xFF
-             else
-                index = (row >> (x << 2)) & 0xF
-             end
+            index = (row >> (x << 2)) & 0xF
         end
 
-        -- Index 0 is transparent
-        if index == 0 then
-            return
-        elseif not map.multipalette then
+        -- 透明像素直接退出，无需读取 Stencil 或 Palette
+        if index == 0 then return end
+        
+        if not map.multipalette then
             index = index | map.palette
         end
-    else
-        index = 0 -- Not used if raw
     end
 
-    local stencil = video.WRITTEN_MASK
-    local oldStencil = backing.stencil[offset]
-    if oldStencil == nil then
-        oldStencil = 0  -- 防护：prepareScanline 未覆盖或 offset 越界时避免对 nil 做位运算
-    end
-    local blend = video.blendMode
+    -- 2. 准备上下文环境 (局部变量化以减少 Table Lookup)
+    local backStencil = backing.stencil
+    local oldStencil = backStencil[offset] or 0 -- 防护 nil
     
+    local stencilVal = 0x80 -- WRITTEN_MASK
+    local enableBlend = false
+    local forceBlend = false
+    local blendMode = video.blendMode
+    local passthroughColors = video.palette.passthroughColors
+    
+    -- 3. 窗口处理 (Windowing Logic)
+    -- 这是开销最大的逻辑部分，尽量简化
     if video.objwinActive then
-        if (oldStencil & video.OBJWIN_MASK) ~= 0 then
-            if video.windows[3].enabled[layer] then
-                video:setBlendEnabled(layer, video.windows[3].special and video.target1[layer], blend)
-                if video.windows[3].special and video.alphaEnabled then
-                    mask = mask | video.target1[layer]
+        -- OBJWIN_MASK (0x20)
+        if (oldStencil & 0x20) ~= 0 then
+            local win3 = video.windows[3]
+            if win3.enabled[layer] then
+                if win3.special and video.target1[layer] then
+                    enableBlend = true
+                    if video.alphaEnabled then mask = mask | video.target1[layer] end
                 end
-                stencil = stencil | video.OBJWIN_MASK
+                stencilVal = stencilVal | 0x20
             else
-                return
+                return -- 被 OBJ Window 裁剪
             end
         elseif video.windows[2].enabled[layer] then
-            video:setBlendEnabled(layer, video.windows[2].special and video.target1[layer], blend)
-            if video.windows[2].special and video.alphaEnabled then
-                mask = mask | video.target1[layer]
+            local win2 = video.windows[2]
+            if win2.special and video.target1[layer] then
+                enableBlend = true
+                if video.alphaEnabled then mask = mask | video.target1[layer] end
             end
         else
-            return
+            return -- 被 Outside Window 裁剪
         end
     end
 
-    if (mask & video.TARGET1_MASK) ~= 0 and (oldStencil & video.TARGET2_MASK) ~= 0 then
-        video:setBlendEnabled(layer, true, 1)
+    -- 检查是否满足普通混合条件 (Target 1 & Target 2)
+    -- TARGET1_MASK=0x10, TARGET2_MASK=0x08
+    if (mask & 0x10) ~= 0 and (oldStencil & 0x08) ~= 0 then
+        forceBlend = true -- 强制混合 (1st Target over 2nd Target)
     end
 
+    -- 4. 获取像素颜色 (延迟到确定可见后)
     local pixel
     if raw then
         pixel = row
     else
-        pixel = video.palette:accessColor(layer, index)
+        pixel = passthroughColors[layer][index]
     end
 
-    if (mask & video.TARGET1_MASK) ~= 0 then
-        video:setBlendEnabled(layer, blend ~= 0, blend)
-    end
-
-    local highPriority = (mask & video.PRIORITY_MASK) < (oldStencil & video.PRIORITY_MASK)
-    -- Backgrounds can draw over each other
-    if (mask & video.PRIORITY_MASK) == (oldStencil & video.PRIORITY_MASK) then
-        highPriority = (mask & video.BACKGROUND_MASK) ~= 0
-    end
-
-    if (oldStencil & video.WRITTEN_MASK) == 0 then
-        -- Nothing here yet
-        stencil = stencil | mask
-    elseif highPriority then
-        -- We are higher priority
-        if (mask & video.TARGET1_MASK) ~= 0 and (oldStencil & video.TARGET2_MASK) ~= 0 then
-            pixel = video.palette:mix(video.blendA, pixel, video.blendB, backing.color[offset])
+    -- 设置混合状态
+    -- 只有在需要改变状态时才调用，或者根据逻辑精简调用
+    if enableBlend or forceBlend or (mask & 0x10) ~= 0 then
+        -- 这里逻辑稍微有些冗余，为了保持与原代码行为一致
+        -- 原代码逻辑：
+        -- 1. Window 可能会 setBlendEnabled
+        -- 2. (mask & 0x10) 和 (oldStencil & 0x08) 可能会 setBlendEnabled(..., 1)
+        -- 3. (mask & 0x10) 可能会 setBlendEnabled(..., blendMode)
+        -- 我们合并一下：最后一次 setBlendEnabled 生效
+        
+        local finalBlendMode = blendMode
+        local finalEnable = (mask & 0x10) ~= 0
+        
+        if forceBlend then 
+            finalEnable = true
+            finalBlendMode = 1 
+        elseif enableBlend then
+            finalEnable = true -- Window special enabled
         end
-        -- We just drew over something
-        stencil = stencil | (mask & ~video.TARGET1_MASK)
-    elseif (mask & video.PRIORITY_MASK) > (oldStencil & video.PRIORITY_MASK) then
-        -- We're below another layer, but might be the blend target for it
-        stencil = oldStencil & ~(video.TARGET1_MASK | video.TARGET2_MASK)
-        if (mask & video.TARGET2_MASK) ~= 0 and (oldStencil & video.TARGET1_MASK) ~= 0 then
-            pixel = video.palette:mix(video.blendB, pixel, video.blendA, backing.color[offset])
+
+        video:setBlendEnabled(layer, finalEnable, finalBlendMode)
+    end
+
+    -- 5. 深度/优先级测试与写入
+    local backColor = backing.color
+    local oldPriority = oldStencil & 0x07
+    local newPriority = mask & 0x07
+    
+    -- PRIORITY_MASK=0x07, BACKGROUND_MASK=0x01
+    local highPriority = newPriority < oldPriority
+    if newPriority == oldPriority then
+        highPriority = (mask & 0x01) ~= 0 -- 同级下，BG mask 决定覆盖
+    end
+
+    if (oldStencil & 0x80) == 0 then
+        -- 1. 空白处写入 (最常见情况)
+        backStencil[offset] = stencilVal | mask
+        backColor[offset] = pixel
+    elseif highPriority then
+        -- 2. 高优先级覆盖
+        if (mask & 0x10) ~= 0 and (oldStencil & 0x08) ~= 0 then
+            -- 如果我是 Target1 且底下是 Target2，进行 Alpha 混合
+            pixel = video.palette:mix(video.blendA, pixel, video.blendB, backColor[offset])
+        end
+        -- 写入，清除 Target1 标记 (防止双重混合)
+        backStencil[offset] = stencilVal | (mask & ~0x10)
+        backColor[offset] = pixel
+    elseif newPriority > oldPriority then
+        -- 3. 低优先级，但在底下 (Background behind Sprite etc)
+        -- 检查是否构成混合：我是 Target2 (0x08)，上面是 Target1 (0x10)
+        if (mask & 0x08) ~= 0 and (oldStencil & 0x10) ~= 0 then
+            -- 混合：上面(dst) mix 下面(src)
+            -- 注意：mix 参数通常是 mix(weightA, colorA, weightB, colorB)
+            -- 这里逻辑是：oldPixel (Target1) * A + newPixel (Target2) * B
+            -- 原代码写的是 mix(blendB, pixel, blendA, backingColor)
+            pixel = video.palette:mix(video.blendB, pixel, video.blendA, backColor[offset])
+            
+            -- 更新 stencil: 移除 Target 标记，表示已混合完成
+            backStencil[offset] = oldStencil & ~(0x10 | 0x08)
+            backColor[offset] = pixel
         else
-            return
+            return -- 被遮挡且不发生混合
         end
     else
-        return
+        return -- 优先级相同或被遮挡
     end
 
-    if (mask & video.OBJWIN_MASK) ~= 0 then
-        -- We ARE the object window, don't draw pixels
-        backing.stencil[offset] = backing.stencil[offset] | video.OBJWIN_MASK
-        return
+    -- OBJWIN 标记处理 (如果当前像素是 OBJ Window 及其一部分)
+    if (mask & 0x20) ~= 0 then
+        backStencil[offset] = backStencil[offset] | 0x20
     end
-
-    backing.color[offset] = pixel
-    backing.stencil[offset] = stencil
 end
 
 --------------------------------------------------------------------------------
@@ -1203,10 +1239,10 @@ function GameBoyAdvanceSoftwareRenderer:setBlendEnabled(layer, enabled, override
 end
 
 function GameBoyAdvanceSoftwareRenderer:writeBlendAlpha(value)
-    self.blendA = (value & 0x001F) / 16
-    if self.blendA > 1 then self.blendA = 1 end
-    self.blendB = ((value & 0x1F00) >> 8) / 16
-    if self.blendB > 1 then self.blendB = 1 end
+    self.blendA = value & 0x001F
+    -- if self.blendA > 1 then self.blendA = 1 end
+    self.blendB = (value & 0x1F00) >> 8
+    --if self.blendB > 1 then self.blendB = 1 end
 end
 
 function GameBoyAdvanceSoftwareRenderer:writeBlendY(value)
@@ -1282,8 +1318,8 @@ function GameBoyAdvanceSoftwareRenderer:accessMapMode0(base, size, x, yBase, out
     local offset = base + ((x >> 2) & 0x3E) + yBase
     if (size & 1) ~= 0 then
         offset = offset + ((x & 0x100) << 3)
-    end
-    local mem = self.vram:loadU16(offset)
+    end 
+    local mem = self.vram.buffer[offset >> 1]
     out.tile = mem & 0x03FF
     out.hflip = (mem & 0x0400) ~= 0
     out.vflip = (mem & 0x0800) ~= 0
@@ -1316,36 +1352,178 @@ function GameBoyAdvanceSoftwareRenderer:prepareScanline(backing)
         backing.stencil[x] = target
     end
 end
+-- 批量处理像素的函数
+-- 参数:
+-- count: 需要处理的像素数量 (通常是 8 或 4，边缘处可能更少)
+-- shiftStart: 初始位移量 (处理水平翻转)
+-- shiftStep: 位移步进 (4 或 -4 等)
+-- mask, backing, offset: 渲染上下文
+function GameBoyAdvanceSoftwareRenderer:pushPixelBatch(layer, map, video, row, count, shiftStart, shiftStep, offset, backing, mask, is8bpp, paletteBase)
+    local index
+    local stencilVal
+    local oldStencil
+    local pixel
+    local highPriority
+    local blend = video.blendMode
+    local blendA = video.blendA
+    local blendB = video.blendB
+    local palette = video.palette
+    local backStencil = backing.stencil
+    local backColor = backing.color
+    
+    -- 本地化窗口逻辑需要的变量，减少查找
+    local objwinActive = video.objwinActive
+    local winTarget1 = video.target1
+    local winWindows = video.windows
+    local alphaEnabled = video.alphaEnabled
 
--- BG Draw Functions
--- In Lua, we bind 'self' to 'this' in the method call. 
--- The JS code calls bg.drawScanline(backing, bg, start, end). 
--- 'bg' is passed as argument, 'this' is 'video'.
+    local passthroughColors = palette.passthroughColors
+
+    -- 循环展开：为了极致性能，这里使用 while 而不是 for，或者直接根据 count 展开
+    -- 但考虑到 count 是动态的 (边缘裁剪)，使用数值循环。
+    -- LuaJIT对这种简单数值循环优化很好。
+    
+    local currentShift = shiftStart
+    
+    local i = 0
+    while i < count do
+        -- 1. 提取颜色索引
+        if is8bpp then
+            index = (row >> currentShift) & 0xFF
+        else
+            index = (row >> currentShift) & 0xF
+        end
+
+        -- 2. 透明度检查 (Index 0 is transparent)
+        if index ~= 0 then
+            if not is8bpp then
+                index = index | paletteBase -- 4bpp加上调色板偏移
+            end
+
+            -- 3. 模板与窗口逻辑 (这是最耗时的部分，内联化)
+            local currentOffset = offset + i
+            oldStencil = backStencil[currentOffset] or 0 -- 防护 nil
+            stencilVal = 0x80 -- WRITTEN_MASK
+
+            local drawPixel = true
+            local currentMask = mask
+
+            -- OBJWIN_MASK check
+            if objwinActive then
+                if (oldStencil & 0x20) ~= 0 then
+                    if winWindows[3].enabled[layer] then
+                        if winWindows[3].special and winTarget1[layer] then
+                            video:setBlendEnabled(layer, true, blend)
+                            if alphaEnabled then currentMask = currentMask | winTarget1[layer] end
+                        else
+                            video:setBlendEnabled(layer, false, blend)
+                        end
+                        stencilVal = stencilVal | 0x20
+                    else
+                        drawPixel = false
+                    end
+                elseif winWindows[2].enabled[layer] then -- WIN0/WIN1 shared logic usually handled by stencil bits, simplified here
+                     -- 这里假设 backing.stencil 已经包含了窗口逻辑位
+                     -- 标准GBA逻辑比较复杂，这里尽量保持原 pushPixel 逻辑的内联
+                     if winWindows[2].special and winTarget1[layer] then
+                        video:setBlendEnabled(layer, true, blend)
+                        if alphaEnabled then currentMask = currentMask | winTarget1[layer] end
+                     else
+                        video:setBlendEnabled(layer, false, blend)
+                     end
+                else
+                    drawPixel = false
+                end
+            end
+
+            -- TARGET1_MASK (0x10) check against oldStencil TARGET2 (0x08)
+            if drawPixel and (currentMask & 0x10) ~= 0 and (oldStencil & 0x08) ~= 0 then
+                video:setBlendEnabled(layer, true, 1)
+            end
+
+            if drawPixel then
+                -- 获取像素颜色
+                pixel = passthroughColors[layer][index]
+
+                if (currentMask & 0x10) ~= 0 then
+                    video:setBlendEnabled(layer, blend ~= 0, blend)
+                end
+
+                -- 优先级判断
+                -- PRIORITY_MASK is 0x07, BACKGROUND_MASK is 0x01
+                highPriority = (currentMask & 0x07) < (oldStencil & 0x07)
+                if (currentMask & 0x07) == (oldStencil & 0x07) then
+                    highPriority = (currentMask & 0x01) ~= 0
+                end
+
+                if (oldStencil & 0x80) == 0 then
+                    -- 之前没有像素
+                    backStencil[currentOffset] = stencilVal | currentMask
+                    backColor[currentOffset] = pixel
+                elseif highPriority then
+                    -- 优先级更高，覆盖并可能混合
+                    if (currentMask & 0x10) ~= 0 and (oldStencil & 0x08) ~= 0 then
+                        pixel = palette:mix(blendA, pixel, blendB, backColor[currentOffset])
+                    end
+                    backStencil[currentOffset] = stencilVal | (currentMask & ~0x10)
+                    backColor[currentOffset] = pixel
+                elseif (currentMask & 0x07) > (oldStencil & 0x07) then
+                    -- 优先级低，但在下方，可能是混合目标
+                    if (currentMask & 0x08) ~= 0 and (oldStencil & 0x10) ~= 0 then
+                         -- 它是 Target2，上方是 Target1，混合写入
+                        pixel = palette:mix(blendB, pixel, blendA, backColor[currentOffset])
+                        -- 更新 Stencil 移除 blend 标记防止重复混合? 通常保持原样或清除
+                        backStencil[currentOffset] = oldStencil & ~(0x10 | 0x08)
+                        backColor[currentOffset] = pixel
+                    end
+                end
+                
+                -- OBJWIN Special Logic (if mask has 0x20)
+                if (currentMask & 0x20) ~= 0 then
+                    backStencil[currentOffset] = backStencil[currentOffset] | 0x20
+                end
+            end
+        end
+        
+        currentShift = currentShift + shiftStep
+        i = i + 1
+    end
+end
 function GameBoyAdvanceSoftwareRenderer:drawScanlineBGMode0(backing, bg, start, endPoint)
     local video = self
     local y = video.vcount
     local offset = start
     local xOff = bg.x
     local yOff = bg.y
-    local localX
-    local localXLo
-    local localY = y + yOff
-    if bg.mosaic then
-        localY = localY - (y % video.bgMosaicY)
-    end
-    local localYLo = localY & 0x7
-    local mosaicX
+    
+    -- 提取频繁访问的对象到局部变量
     local screenBase = bg.screenBase
     local charBase = bg.charBase
     local size = bg.size
     local index = bg.index
     local map = video.sharedMap
-    local paletteShift = bg.multipalette and 1 or 0
-    local mask = video.target2[index] | (bg.priority << 1) | video.BACKGROUND_MASK
+    local bgPriority = bg.priority
+    
+    -- 计算 Mask
+    local baseMask = video.target2[index] | (bgPriority << 1) | video.BACKGROUND_MASK
     if video.blendMode == 1 and video.alphaEnabled then
-        mask = mask | video.target1[index]
+        baseMask = baseMask | video.target1[index]
     end
 
+    -- 确定 Y 坐标 (Mosaic Y 处理)
+    local localY = y + yOff
+    local bgMosaic = bg.mosaic
+    -- 如果马赛克参数为 1x1，等同于关闭
+    if bgMosaic and video.bgMosaicX == 1 and video.bgMosaicY == 1 then
+        bgMosaic = false
+    end
+
+    if bgMosaic then
+        localY = localY - (y % video.bgMosaicY)
+    end
+    local localYLo = localY & 0x7
+
+    -- 计算 Map 的 yBase
     local yBase = (localY << 3) & 0x7C0
     if size == 2 then
         yBase = yBase + ((localY << 3) & 0x800)
@@ -1354,55 +1532,154 @@ function GameBoyAdvanceSoftwareRenderer:drawScanlineBGMode0(backing, bg, start, 
     end
 
     local xMask = ((size & 1) ~= 0) and 0x1FF or 0xFF
+    local x = start
 
-    video:accessMapMode0(screenBase, size, (start + xOff) & xMask, yBase, map)
-    
-    local tileY = map.vflip and (7 - localYLo) or localYLo
-    local tileRow = video:accessTile(charBase, map.tile << paletteShift, tileY << paletteShift)
-    local x=start
-    local shiftX
-    -- lua的坑，涉及到循环内x变动不能用for
-    while x < endPoint do
-        localX = (x + xOff) & xMask
-        mosaicX = bg.mosaic and (offset % video.bgMosaicX) or 0
-        localX = localX - mosaicX
-        localXLo = localX & 0x7
+    -- =============================================================
+    -- 路径 1: Mosaic 开启 (慢速/兼容路径)
+    -- 直接保留原有的逐像素逻辑，因为坐标跳跃，批量优化收益低且复杂
+    -- =============================================================
+    if bgMosaic then
+        local mosaicX
+        local localX, localXLo, tileY, tileRow, shiftX
+        local paletteShift = bg.multipalette and 1 or 0
         
-        if paletteShift == 0 then
-            if localXLo == 0 or (bg.mosaic and mosaicX == 0) then
-                video:accessMapMode0(screenBase, size, localX, yBase, map)
-                tileY = map.vflip and (7 - localYLo) or localYLo
-                tileRow = video:accessTile(charBase, map.tile, tileY)
-                if tileRow == 0 and localXLo == 0 then
-                    x = x + 7
-                    offset = offset + 8
-                    goto continue_bg0
+        while x < endPoint do
+            localX = (x + xOff) & xMask
+            mosaicX = (offset % video.bgMosaicX) -- Mosaic offset calculation
+            localX = localX - mosaicX
+            localXLo = localX & 0x7
+            
+            if paletteShift == 0 then -- 4bpp
+                if localXLo == 0 or mosaicX == 0 then
+                    video:accessMapMode0(screenBase, size, localX, yBase, map)
+                    tileY = map.vflip and (7 - localYLo) or localYLo
+                    tileRow = video:accessTile(charBase, map.tile, tileY)
+                end
+            else -- 8bpp
+                if localXLo == 0 or mosaicX == 0 then
+                    video:accessMapMode0(screenBase, size, localX, yBase, map)
+                end
+                if (localXLo & 0x3) == 0 or mosaicX == 0 then
+                    local hFlipCheck = (localX & 0x4) ~= 0
+                    if map.hflip then hFlipCheck = not hFlipCheck end
+                    tileY = map.vflip and (7 - localYLo) or localYLo
+                    tileRow = video:accessTile(charBase + (hFlipCheck and 4 or 0), map.tile << 1, tileY << 1)
                 end
             end
             
-        else
-            if localXLo == 0 or (bg.mosaic and mosaicX == 0) then
-                video:accessMapMode0(screenBase, size, localX, yBase, map)
-            end
-            if (localXLo & 0x3) == 0 or (bg.mosaic and mosaicX == 0) then
-                local hFlipCheck = (localX & 0x4) ~= 0
-                if map.hflip then hFlipCheck = not hFlipCheck end
-                tileY = map.vflip and (7 - localYLo) or localYLo
-                tileRow = video:accessTile(charBase + (hFlipCheck and 4 or 0), map.tile << 1, tileY << 1)
-                if tileRow == 0 and (localXLo & 0x3) == 0 then
-                    x = x + 3
-                    offset = offset + 4
-                    goto continue_bg0
+            shiftX = localXLo
+            if map.hflip then shiftX = 7 - shiftX end
+            
+            -- 使用旧的单像素 pushPixel (前提是该函数存在于你的代码库中)
+            bg.pushPixel(index, map, video, tileRow, shiftX, offset, backing, baseMask, false)
+            
+            offset = offset + 1
+            x = x + 1
+        end
+        return
+    end
+
+    -- =============================================================
+    -- 路径 2: Mosaic 关闭 (高性能/批量路径)
+    -- =============================================================
+    
+    if not bg.multipalette then
+        -- >>>>>>>>>>>>>>> 4bpp Loop (16 Colors) >>>>>>>>>>>>>>>
+        while x < endPoint do
+            local localX = (x + xOff) & xMask
+            local localXLo = localX & 0x7
+            
+            -- 获取 Map 信息
+            -- accessMapMode0 在同一瓦片内调用是幂等的，开销相对较小，
+            -- 但为了对齐，我们在切瓦片时调用
+            video:accessMapMode0(screenBase, size, localX, yBase, map)
+            
+            local tileY = map.vflip and (7 - localYLo) or localYLo
+            local tileRow = video:accessTile(charBase, map.tile, tileY)
+
+            -- [优化] 快速跳过全透明瓦片
+            if tileRow == 0 then
+                local skip = 8 - localXLo
+                if x + skip > endPoint then skip = endPoint - x end
+                x = x + skip
+                offset = offset + skip
+            else
+                -- 准备批量处理
+                local count = 8 - localXLo
+                if x + count > endPoint then count = endPoint - x end
+
+                -- 计算位移 (Shift)
+                -- 4bpp: 每个像素占 4位
+                -- 无翻转: 0->0, 1->4, 2->8 ...
+                -- 翻转: 0->28, 1->24 ... (Tile像素顺序反转)
+                local shiftStart
+                local shiftStep = 4
+                
+                if map.hflip then
+                    shiftStart = 28 - (localXLo << 2)
+                    shiftStep = -4
+                else
+                    shiftStart = localXLo << 2
                 end
 
+                -- 调用批量处理
+                self:pushPixelBatch(index, map, video, tileRow, count, shiftStart, shiftStep, offset, backing, baseMask, false, map.palette)
+                
+                x = x + count
+                offset = offset + count
             end
         end
-        shiftX = localXLo
-        if map.hflip then shiftX = 7 - shiftX end
-        bg.pushPixel(index, map, video, tileRow, shiftX, offset, backing, mask, false)
-        offset = offset + 1
-        ::continue_bg0::
-        x = x + 1
+    else
+        -- >>>>>>>>>>>>>>> 8bpp Loop (256 Colors) >>>>>>>>>>>>>>>
+        -- 8bpp 下 Tile 宽度仍为 8，但 accessTile 一次只返回 4 个像素 (32bit)
+        -- 需要处理左半 (0-3) 和 右半 (4-7)
+        while x < endPoint do
+            local localX = (x + xOff) & xMask
+            local localXLo = localX & 0x7
+            
+            video:accessMapMode0(screenBase, size, localX, yBase, map)
+            
+            -- 判断是在 Tile 的前半段还是后半段
+            local subTileX = localXLo & 0x3 -- 0-3
+            local isSecondHalf = (localX & 0x4) ~= 0
+            
+            -- 处理 HFlip 对半区选择的影响
+            local hFlipCheck = isSecondHalf
+            if map.hflip then hFlipCheck = not hFlipCheck end
+            
+            local tileY = map.vflip and (7 - localYLo) or localYLo
+            
+            -- 8bpp: charBase 偏移 (+4) 和索引 (*2) 
+            local tileRow = video:accessTile(charBase + (hFlipCheck and 4 or 0), map.tile << 1, tileY << 1)
+
+            -- [优化] 跳过全透明
+            if tileRow == 0 then
+                local skip = 4 - subTileX
+                if x + skip > endPoint then skip = endPoint - x end
+                x = x + skip
+                offset = offset + skip
+            else
+                local count = 4 - subTileX
+                if x + count > endPoint then count = endPoint - x end
+                
+                local shiftStart
+                local shiftStep = 8 -- 8 bits per pixel
+                
+                if map.hflip then
+                    -- HFlip 8bpp: 块内像素倒序 3->2->1->0
+                    shiftStart = (3 - subTileX) << 3
+                    shiftStep = -8
+                else
+                    shiftStart = subTileX << 3
+                end
+                
+                -- 8bpp 不需要 paletteBase (传0)，flag 为 true
+                self:pushPixelBatch(index, map, video, tileRow, count, shiftStart, shiftStep, offset, backing, baseMask, true, 0)
+                
+                x = x + count
+                offset = offset + count
+            end
+        end
     end
 end
 
@@ -1647,21 +1924,29 @@ function GameBoyAdvanceSoftwareRenderer:finishScanline(backing)
     local bd = self.palette:accessColor(self.LAYER_BACKDROP, 0)
     local xx = self.vcount * self.HORIZONTAL_PIXELS * 4 -- index 0 based
     local isTarget2 = (self.target2[self.LAYER_BACKDROP] ~= 0)
+
+    local backingcolor = backing.color;
+    local backingstencil = backing.stencil;
+    local r,g,b
+    local pdata = self.pixelData.data;
     for x = 0, self.HORIZONTAL_PIXELS - 1 do
-        if (backing.stencil[x] & self.WRITTEN_MASK) ~= 0 then
-            color = backing.color[x]
-            if isTarget2 and (backing.stencil[x] & self.TARGET1_MASK) ~= 0 then
+        --0x80 is written mask
+        if (backingstencil[x] & 0x80) ~= 0 then
+            color = backingcolor[x]
+            -- 0x10 is target1 mask
+            if isTarget2 and (backingstencil[x] & 0x10) ~= 0 then
                 color = self.palette:mix(self.blendA, color, self.blendB, bd)
             end
-            self.palette:convert16To32(color, self.sharedColor)
+            pdata[1+xx] = (color & 0x001F) << 3
+            pdata[2+xx] = (color & 0x03E0) >> 2
+            pdata[3+xx] = (color & 0x7C00) >> 7
+            --pdata[4+xx] = 255 -- Alpha Always 255
         else
-            self.palette:convert16To32(bd, self.sharedColor)
+            pdata[1+xx] = (bd & 0x001F) << 3
+            pdata[2+xx] = (bd & 0x03E0) >> 2
+            pdata[3+xx] = (bd & 0x7C00) >> 7
+            --pdata[4+xx] = 255 -- Alpha Always 255
         end
-        
-        self.pixelData.data[1+xx] = self.sharedColor[0]
-        self.pixelData.data[1+xx+1] = self.sharedColor[1]
-        self.pixelData.data[1+xx+2] = self.sharedColor[2]
-        self.pixelData.data[1+xx+3] = 255 -- Alpha
         xx = xx + 4
     end
 end

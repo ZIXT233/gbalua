@@ -70,30 +70,6 @@ function GameBoyAdvanceKeypad:keyboardHandler(key, action)
     end
 end
 
--- 供 gbaio KEYINPUT 读取时调用（与 keypad.js 接口一致）
--- 若有 window 则轮询键盘状态，否则依赖 callback 已更新的 currentDown
-function GameBoyAdvanceKeypad:pollGamepads()
-    if self.window then
-        self:pollKeys(self.window)
-    end
-end
-
--- 轮询模式：用 glfw.get_key 更新按键状态
--- 多个物理键映射同一 GBA 键时，任一按下即视为按下
-function GameBoyAdvanceKeypad:pollKeys(window)
-    if not window then
-        return
-    end
-    local glfw = require("moonglfw")
-    local pressed = 0
-    for glfwKey, gbaBit in pairs(self.keyMap) do
-        local ok, state = pcall(function() return glfw.get_key(window, glfwKey) end)
-        if ok and (state == "press" or state == "repeat") then
-            pressed = pressed | (1 << gbaBit)
-        end
-    end
-    self.currentDown = (0x03ff & ~pressed)
-end
 
 -- 注册 moonglfw 键盘回调到指定窗口
 -- 同时保存 window 供 pollGamepads 轮询

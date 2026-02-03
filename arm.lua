@@ -3,8 +3,11 @@ local ARMCoreArm = ClassUtils.class("ARMCoreArm")
 
 local NOMAP = -1
 local WB_32_MASK= 0xffffffff
+
 function ARMCoreArm:ctor(cpu)
     self.cpu = cpu;
+    self.mmu = cpu.mmu;
+
     self.addressingMode23Immediate = {
     [0] = function(rn, offset, condOp)
             local gprs = cpu.gprs
@@ -18,7 +21,7 @@ function ARMCoreArm:ctor(cpu)
                     return addr&WB_32_MASK
                 end}
             )
-            address.writesPC = rn == cpu.PC
+            address.writesPC = rn == 15
             return address
         end,
         NOMAP,
@@ -36,7 +39,7 @@ function ARMCoreArm:ctor(cpu)
                     return addr&WB_32_MASK
                 end}
             )
-            address.writesPC = rn == cpu.PC
+            address.writesPC = rn == 15
             return address
         end,
         NOMAP,
@@ -67,7 +70,7 @@ function ARMCoreArm:ctor(cpu)
                     return addr
                 end}
             )
-            address.writesPC = rn == cpu.PC
+            address.writesPC = rn == 15
             return address
         end,
         NOMAP,
@@ -97,7 +100,7 @@ function ARMCoreArm:ctor(cpu)
                     return addr
                 end}
             )
-            address.writesPC = rn == cpu.PC
+            address.writesPC = rn == 15
             return address
         end,
         NOMAP,
@@ -116,7 +119,7 @@ function ARMCoreArm:ctor(cpu)
                     return addr&WB_32_MASK
                 end}
             )
-            address.writesPC = rn == cpu.PC
+            address.writesPC = rn == 15
             return address
         end,
         NOMAP,
@@ -134,7 +137,7 @@ function ARMCoreArm:ctor(cpu)
                     return addr&WB_32_MASK
                 end}
             )
-            address.writesPC = rn == cpu.PC
+            address.writesPC = rn == 15
             return address
         end,
         NOMAP,
@@ -163,7 +166,7 @@ function ARMCoreArm:ctor(cpu)
                     return addr
                 end}
             )
-            address.writesPC = rn == cpu.PC
+            address.writesPC = rn == 15
             return address
         end,
         NOMAP,
@@ -192,7 +195,7 @@ function ARMCoreArm:ctor(cpu)
                     return addr
                 end}
             )
-            address.writesPC = rn == cpu.PC
+            address.writesPC = rn == 15
             return address
         end,
         NOMAP,
@@ -212,7 +215,7 @@ function ARMCoreArm:ctor(cpu)
                     return addr&WB_32_MASK
                 end}
             )
-            address.writesPC = rn == cpu.PC
+            address.writesPC = rn == 15
             return address
         end,
         NOMAP,
@@ -231,7 +234,7 @@ function ARMCoreArm:ctor(cpu)
                     return addr&WB_32_MASK
                 end}
             )
-            address.writesPC = rn == cpu.PC
+            address.writesPC = rn == 15
             return address
         end,
         NOMAP,
@@ -262,7 +265,7 @@ function ARMCoreArm:ctor(cpu)
                     return addr
                 end}
             )
-            address.writesPC = rn == cpu.PC
+            address.writesPC = rn == 15
             return address
         end,
         NOMAP,
@@ -292,7 +295,7 @@ function ARMCoreArm:ctor(cpu)
                     return addr
                 end}
             )
-            address.writePC = rn == cpu.PC
+            address.writePC = rn == 15
             return address
         end,
         NOMAP,
@@ -306,12 +309,12 @@ function ARMCoreArm:constructAddressingMode1ASR(rs, rm)
     return function()
         cpu.cycles = cpu.cycles + 1
         local shift = gprs[rs]
-        if rs == cpu.PC then
+        if rs == 15 then
             shift = shift + 4
         end
         shift = shift & 255
         local shiftVal = gprs[rm]
-        if rm == cpu.PC then
+        if rm == 15 then
             shiftVal = shiftVal + 4
         end
         if shift == 0 then
@@ -356,16 +359,18 @@ end
 
 function ARMCoreArm:constructAddressingMode1LSL(rs, rm)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
         cpu.cycles = cpu.cycles + 1;
         local shift = gprs[rs];
-        if rs == cpu.PC then
+        if rs == 15 then
             shift = shift + 4
         end
         shift = shift & 255
         local shiftVal = gprs[rm];
-        if rm == cpu.PC then
+        if rm == 15 then
             shiftVal = shiftVal + 4
         end
         if shift == 0 then
@@ -390,12 +395,12 @@ function ARMCoreArm:constructAddressingMode1LSR(rs, rm)
     return function()
         cpu.cycles = cpu.cycles + 1
         local shift = gprs[rs]
-        if rs == cpu.PC then
+        if rs == 15 then
             shift = shift + 4
         end
         shift = shift & 255
         local shiftVal = gprs[rm]
-        if rm == cpu.PC then
+        if rm == 15 then
             shiftVal = shiftVal + 4
         end
         if shift == 0 then
@@ -420,12 +425,12 @@ function ARMCoreArm:constructAddressingMode1ROR(rs, rm)
     return function()
         cpu.cycles = cpu.cycles + 1
         local shift = gprs[rs]
-        if rs == cpu.PC then
+        if rs == 15 then
             shift = shift + 4
         end
         shift = shift & 255
         local shiftVal = gprs[rm]
-        if rm == cpu.PC then
+        if rm == 15 then
             shiftVal = shiftVal + 4
         end
         local rotate = shift & 31
@@ -466,6 +471,8 @@ function ARMCoreArm:constructAddressingMode2RegisterShifted(instruction, shiftOp
 end
 function ARMCoreArm:constructAddressingMode4(immediate, rn) 
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
         local addr = (gprs[rn] + immediate)&WB_32_MASK;
@@ -475,6 +482,8 @@ end
 
 function ARMCoreArm:constructAddressingMode4Writeback(immediate, offset, rn, overlap)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function (writeInitial)
         local addr = (gprs[rn] + immediate)&WB_32_MASK;
@@ -487,9 +496,15 @@ function ARMCoreArm:constructAddressingMode4Writeback(immediate, offset, rn, ove
 end
 function ARMCoreArm:constructADC(rd, rn, shiftOp, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -501,9 +516,11 @@ end
 
 function ARMCoreArm:constructADCS(rd, rn, shiftOp, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -511,7 +528,7 @@ function ARMCoreArm:constructADCS(rd, rn, shiftOp, condOp)
         local shifterOperand = cpu.shifterOperand + (cpu.cpsrC and 1 or 0);
         local d = gprs[rn] + shifterOperand;
         local d32 = d & WB_32_MASK;
-        if rd == cpu.PC and cpu:hasSPSR() then
+        if rd == 15 and cpu:hasSPSR() then
             cpu:unpackCPSR(cpu.spsr);
         else
             cpu.cpsrN = d32 >> 31 ~= 0;
@@ -528,9 +545,11 @@ end
 
 function ARMCoreArm:constructADD(rd, rn, shiftOp, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -541,16 +560,18 @@ end
 
 function ARMCoreArm:constructADDS(rd, rn, shiftOp, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
         shiftOp();
         local d = gprs[rn]  + cpu.shifterOperand;
         local d32 = d & WB_32_MASK;
-        if rd == cpu.PC and cpu:hasSPSR() then
+        if rd == 15 and cpu:hasSPSR() then
             cpu:unpackCPSR(cpu.spsr);
         else
             cpu.cpsrN = d32 >> 31 ~= 0;
@@ -566,9 +587,11 @@ function ARMCoreArm:constructADDS(rd, rn, shiftOp, condOp)
 end
 function ARMCoreArm:constructAND(rd, rn, shiftOp, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -578,15 +601,17 @@ function ARMCoreArm:constructAND(rd, rn, shiftOp, condOp)
 end
 function ARMCoreArm:constructANDS(rd, rn, shiftOp, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
         shiftOp();
         gprs[rd] = gprs[rn] & cpu.shifterOperand;
-        if rd == cpu.PC and cpu:hasSPSR() then
+        if rd == 15 and cpu:hasSPSR() then
             cpu:unpackCPSR(cpu.spsr);
         else
             cpu.cpsrN = gprs[rd] >> 31 ~= 0;
@@ -598,22 +623,26 @@ end
 
 function ARMCoreArm:constructB(immediate, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
         if condOp and not condOp() then
-            cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+            cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
             return;
         end
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
-        gprs[cpu.PC] = gprs[cpu.PC] + immediate;
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
+        gprs[15] = gprs[15] + immediate;
     end
 end
 
 function ARMCoreArm:constructBIC(rd, rn, shiftOp, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -625,15 +654,17 @@ end
 
 function ARMCoreArm:constructBICS(rd, rn, shiftOp, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
         shiftOp();
         gprs[rd] = gprs[rn] & ~cpu.shifterOperand;
-        if rd == cpu.PC and cpu:hasSPSR() then
+        if rd == 15 and cpu:hasSPSR() then
             cpu:unpackCPSR(cpu.spsr);
         else
             cpu.cpsrN = gprs[rd] >> 31 ~= 0
@@ -645,35 +676,41 @@ end
 
 function ARMCoreArm:constructBL(immediate, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
         if condOp and not condOp() then
-            cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+            cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
             return;
         end
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
-        gprs[cpu.LR] = gprs[cpu.PC] - 4;
-        gprs[cpu.PC] = gprs[cpu.PC] + immediate;
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
+        gprs[cpu.LR] = gprs[15] - 4;
+        gprs[15] = gprs[15] + immediate;
     end
 end
 function ARMCoreArm:constructBX(rm, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
         if condOp and not condOp() then
-            cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+            cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
             return;
         end
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         cpu:switchExecMode(gprs[rm] & 0x00000001 ~= 0);
-        gprs[cpu.PC] = gprs[rm] & 0xfffffffe;
+        gprs[15] = gprs[rm] & 0xfffffffe;
     end
 end
 function ARMCoreArm:constructCMN(rd, rn, shiftOp, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -691,9 +728,11 @@ function ARMCoreArm:constructCMN(rd, rn, shiftOp, condOp)
 end
 function ARMCoreArm:constructCMP(rd, rn, shiftOp, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -712,9 +751,11 @@ function ARMCoreArm:constructCMP(rd, rn, shiftOp, condOp)
 end
 function ARMCoreArm:constructEOR(rd, rn, shiftOp, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -724,15 +765,17 @@ function ARMCoreArm:constructEOR(rd, rn, shiftOp, condOp)
 end
 function ARMCoreArm:constructEORS(rd, rn, shiftOp, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
         shiftOp();
         gprs[rd] = (gprs[rn] ~ cpu.shifterOperand) & WB_32_MASK;
-        if rd == cpu.PC and cpu:hasSPSR() then
+        if rd == 15 and cpu:hasSPSR() then
             cpu:unpackCPSR(cpu.spsr);
         else
             cpu.cpsrN = gprs[rd] >> 31 ~= 0
@@ -744,10 +787,12 @@ end
 function ARMCoreArm:constructLDM(rs, address, condOp)
     --据说没有PC处理
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     local mmu = cpu.mmu;
     return function ()
-        mmu:waitPrefetch32(gprs[cpu.PC]);
+        mmu:waitPrefetch32(gprs[15]);
         if condOp and not condOp() then
             return;
         end
@@ -770,10 +815,12 @@ function ARMCoreArm:constructLDM(rs, address, condOp)
 end
 function ARMCoreArm:constructLDMS(rs, address, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     local mmu = cpu.mmu;
     return function ()
-        mmu:waitPrefetch32(gprs[cpu.PC]);
+        mmu:waitPrefetch32(gprs[15]);
         if condOp and not condOp() then
             return;
         end
@@ -799,9 +846,11 @@ function ARMCoreArm:constructLDMS(rs, address, condOp)
 end
 function ARMCoreArm:constructLDR(rd, address, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -813,9 +862,11 @@ function ARMCoreArm:constructLDR(rd, address, condOp)
 end
 function ARMCoreArm:constructLDRB(rd, address, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -827,9 +878,11 @@ function ARMCoreArm:constructLDRB(rd, address, condOp)
 end
 function ARMCoreArm:constructLDRH(rd, address, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -841,9 +894,11 @@ function ARMCoreArm:constructLDRH(rd, address, condOp)
 end
 function ARMCoreArm:constructLDRSB(rd, address, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -855,9 +910,11 @@ function ARMCoreArm:constructLDRSB(rd, address, condOp)
 end
 function ARMCoreArm:constructLDRSH(rd, address, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -869,9 +926,11 @@ function ARMCoreArm:constructLDRSH(rd, address, condOp)
 end
 function ARMCoreArm:constructMLA(rd, rn, rs, rm, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -889,9 +948,11 @@ function ARMCoreArm:constructMLA(rd, rn, rs, rm, condOp)
 end
 function ARMCoreArm:constructMLAS(rd, rn, rs, rm, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -911,9 +972,11 @@ function ARMCoreArm:constructMLAS(rd, rn, rs, rm, condOp)
 end
 function ARMCoreArm:constructMOV(rd, rn, shiftOp, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -923,15 +986,17 @@ function ARMCoreArm:constructMOV(rd, rn, shiftOp, condOp)
 end
 function ARMCoreArm:constructMOVS(rd, rn, shiftOp, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
         shiftOp();
         gprs[rd] = cpu.shifterOperand;
-        if rd == cpu.PC and cpu:hasSPSR() then
+        if rd == 15 and cpu:hasSPSR() then
             cpu:unpackCPSR(cpu.spsr);
         else
             cpu.cpsrN = gprs[rd] >> 31 ~= 0
@@ -942,9 +1007,11 @@ function ARMCoreArm:constructMOVS(rd, rn, shiftOp, condOp)
 end
 function ARMCoreArm:constructMRS(rd, r, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -957,13 +1024,15 @@ function ARMCoreArm:constructMRS(rd, r, condOp)
 end
 function ARMCoreArm:constructMSR(rm, r, instruction, immediate, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     local c = instruction & 0x00010000;
     --//local x = instruction & 0x00020000;
     --//local s = instruction & 0x00040000;
     local f = instruction & 0x00080000;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -1001,9 +1070,11 @@ function ARMCoreArm:constructMSR(rm, r, instruction, immediate, condOp)
 end
 function ARMCoreArm:constructMUL(rd, rs, rm, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -1021,9 +1092,11 @@ function ARMCoreArm:constructMUL(rd, rs, rm, condOp)
 end
 function ARMCoreArm:constructMULS(rd, rs, rm, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -1042,9 +1115,11 @@ function ARMCoreArm:constructMULS(rd, rs, rm, condOp)
 end
 function ARMCoreArm:constructMVN(rd, rn, shiftOp, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -1054,15 +1129,17 @@ function ARMCoreArm:constructMVN(rd, rn, shiftOp, condOp)
 end
 function ARMCoreArm:constructMVNS(rd, rn, shiftOp, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
         shiftOp();
         gprs[rd] = (~cpu.shifterOperand) & WB_32_MASK;
-        if rd == cpu.PC and cpu:hasSPSR() then
+        if rd == 15 and cpu:hasSPSR() then
             cpu:unpackCPSR(cpu.spsr);
         else
             cpu.cpsrN = gprs[rd] >> 31 ~= 0
@@ -1073,9 +1150,11 @@ function ARMCoreArm:constructMVNS(rd, rn, shiftOp, condOp)
 end
 function ARMCoreArm:constructORR(rd, rn, shiftOp, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -1085,15 +1164,17 @@ function ARMCoreArm:constructORR(rd, rn, shiftOp, condOp)
 end
 function ARMCoreArm:constructORRS(rd, rn, shiftOp, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
         shiftOp();
         gprs[rd] = gprs[rn] | cpu.shifterOperand;
-        if rd == cpu.PC and cpu:hasSPSR() then
+        if rd == 15 and cpu:hasSPSR() then
             cpu:unpackCPSR(cpu.spsr);
         else
             cpu.cpsrN = gprs[rd] >> 31 ~= 0
@@ -1104,9 +1185,11 @@ function ARMCoreArm:constructORRS(rd, rn, shiftOp, condOp)
 end
 function ARMCoreArm:constructRSB(rd, rn, shiftOp, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -1116,16 +1199,18 @@ function ARMCoreArm:constructRSB(rd, rn, shiftOp, condOp)
 end
 function ARMCoreArm:constructRSBS(rd, rn, shiftOp, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
         shiftOp();
         local d = cpu.shifterOperand - gprs[rn];
         local d32 = d & WB_32_MASK;
-        if rd == cpu.PC and cpu:hasSPSR() then
+        if rd == 15 and cpu:hasSPSR() then
             cpu:unpackCPSR(cpu.spsr);
         else
             cpu.cpsrN = d32 >> 31 ~= 0;
@@ -1140,9 +1225,11 @@ function ARMCoreArm:constructRSBS(rd, rn, shiftOp, condOp)
 end
 function ARMCoreArm:constructRSC(rd, rn, shiftOp, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -1153,9 +1240,11 @@ function ARMCoreArm:constructRSC(rd, rn, shiftOp, condOp)
 end
 function ARMCoreArm:constructRSCS(rd, rn, shiftOp, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -1163,7 +1252,7 @@ function ARMCoreArm:constructRSCS(rd, rn, shiftOp, condOp)
         local n = gprs[rn] + (not cpu.cpsrC and 1 or 0);
         local d = cpu.shifterOperand - n;
         local d32 = d & WB_32_MASK;
-        if rd == cpu.PC and cpu:hasSPSR() then
+        if rd == 15 and cpu:hasSPSR() then
             cpu:unpackCPSR(cpu.spsr);
         else
             cpu.cpsrN = d32 >> 31 ~= 0;
@@ -1178,9 +1267,11 @@ function ARMCoreArm:constructRSCS(rd, rn, shiftOp, condOp)
 end
 function ARMCoreArm:constructSBC(rd, rn, shiftOp, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -1191,9 +1282,11 @@ function ARMCoreArm:constructSBC(rd, rn, shiftOp, condOp)
 end
 function ARMCoreArm:constructSBCS(rd, rn, shiftOp, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -1202,7 +1295,7 @@ function ARMCoreArm:constructSBCS(rd, rn, shiftOp, condOp)
         local shifterOperand = cpu.shifterOperand + ((not cpu.cpsrC) and 1 or 0);
         local d = gprs[rn] - shifterOperand;
         local d32 = d & WB_32_MASK;
-        if rd == cpu.PC and cpu:hasSPSR() then
+        if rd == 15 and cpu:hasSPSR() then
             cpu:unpackCPSR(cpu.spsr);
         else
             cpu.cpsrN = d32 >> 31 ~= 0;
@@ -1222,7 +1315,7 @@ function ARMCoreArm:constructSMLAL(rd, rn, rs, rm, condOp)
     -- Lua 5.4 不需要 SHIFT_32 这种浮点技巧，直接用位移即可
     
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC])
+        cpu.mmu:waitPrefetch32(gprs[15])
         
         if condOp and not condOp() then
             return
@@ -1262,7 +1355,7 @@ function ARMCoreArm:constructSMLALS(rd, rn, rs, rm, condOp)
     -- Lua 5.4 不需要 SHIFT_32 这种浮点技巧，直接用位移即可
     
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC])
+        cpu.mmu:waitPrefetch32(gprs[15])
         
         if condOp and not condOp() then
             return
@@ -1304,7 +1397,7 @@ function ARMCoreArm:constructSMULL(rd, rn, rs, rm, condOp)
     
     return function ()
         -- 1. 等待预取
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC])
+        cpu.mmu:waitPrefetch32(gprs[15])
         
         -- 2. 条件执行判断
         if condOp and not condOp() then
@@ -1346,7 +1439,7 @@ function ARMCoreArm:constructSMULLS(rd, rn, rs, rm, condOp)
     
     return function ()
         -- 1. 等待预取
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC])
+        cpu.mmu:waitPrefetch32(gprs[15])
         
         -- 2. 条件执行判断
         if condOp and not condOp() then
@@ -1387,14 +1480,16 @@ end
 
 function ARMCoreArm:constructSTM(rs, address, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     local mmu = cpu.mmu;
     return function ()
         if condOp and not condOp() then
-            mmu:waitPrefetch32(gprs[cpu.PC]);
+            mmu:waitPrefetch32(gprs[15]);
             return;
         end
-        mmu:wait32(gprs[cpu.PC]);
+        mmu:wait32(gprs[15]);
         local addr = address(true);
        
         local total = 0;
@@ -1415,14 +1510,16 @@ function ARMCoreArm:constructSTM(rs, address, condOp)
 end
 function ARMCoreArm:constructSTMS(rs, address, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     local mmu = cpu.mmu;
     return function ()
         if condOp and not condOp() then
-            mmu:waitPrefetch32(gprs[cpu.PC]);
+            mmu:waitPrefetch32(gprs[15]);
             return;
         end
-        mmu:wait32(gprs[cpu.PC]);
+        mmu:wait32(gprs[15]);
         local mode = cpu.mode;
         local addr = address(true);
         local total = 0;
@@ -1445,51 +1542,59 @@ function ARMCoreArm:constructSTMS(rs, address, condOp)
 end
 function ARMCoreArm:constructSTR(rd, address, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
         if condOp and not condOp() then
-            cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+            cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
             return;
         end
         local addr = address();
         cpu.mmu:store32(addr, gprs[rd]);
         cpu.mmu:wait32(addr);
-        cpu.mmu:wait32(gprs[cpu.PC]);
+        cpu.mmu:wait32(gprs[15]);
     end
 end
 function ARMCoreArm:constructSTRB(rd, address, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
         if condOp and not condOp() then
-            cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+            cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
             return;
         end
         local addr = address();
         cpu.mmu:store8(addr, gprs[rd]);
         cpu.mmu:wait(addr);
-        cpu.mmu:wait32(gprs[cpu.PC]);
+        cpu.mmu:wait32(gprs[15]);
     end
 end
 function ARMCoreArm:constructSTRH(rd, address, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
         if condOp and not condOp() then
-            cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+            cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
             return;
         end
         local addr = address();
         cpu.mmu:store16(addr, gprs[rd]);
         cpu.mmu:wait(addr);
-        cpu.mmu:wait32(gprs[cpu.PC]);
+        cpu.mmu:wait32(gprs[15]);
     end
 end
 function ARMCoreArm:constructSUB(rd, rn, shiftOp, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -1499,9 +1604,11 @@ function ARMCoreArm:constructSUB(rd, rn, shiftOp, condOp)
 end
 function ARMCoreArm:constructSUBS(rd, rn, shiftOp, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -1509,7 +1616,7 @@ function ARMCoreArm:constructSUBS(rd, rn, shiftOp, condOp)
         local d = gprs[rn] - cpu.shifterOperand;
 
         local d32 = d & WB_32_MASK;
-        if rd == cpu.PC and cpu:hasSPSR() then
+        if rd == 15 and cpu:hasSPSR() then
             cpu:unpackCPSR(cpu.spsr);
         else
             cpu.cpsrN = d32 >> 31 ~= 0;
@@ -1523,21 +1630,25 @@ function ARMCoreArm:constructSUBS(rd, rn, shiftOp, condOp)
 end
 function ARMCoreArm:constructSWI(immediate, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
         if condOp and not condOp() then
-            cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+            cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
             return;
         end
         cpu.irq:swi32(immediate);
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
     end
 end
 function ARMCoreArm:constructSWP(rd, rn, rm, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -1551,9 +1662,11 @@ function ARMCoreArm:constructSWP(rd, rn, rm, condOp)
 end
 function ARMCoreArm:constructSWPB(rd, rn, rm, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -1567,9 +1680,11 @@ function ARMCoreArm:constructSWPB(rd, rn, rm, condOp)
 end
 function ARMCoreArm:constructTEQ(rd, rn, shiftOp, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -1583,9 +1698,11 @@ function ARMCoreArm:constructTEQ(rd, rn, shiftOp, condOp)
 end
 function ARMCoreArm:constructTST(rd, rn, shiftOp, condOp)
     local cpu = self.cpu;
+    local mmu = cpu.mmu;
+    local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs;
     return function ()
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC]);
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         if condOp and not condOp() then
             return;
         end
@@ -1603,7 +1720,7 @@ function ARMCoreArm:constructUMLAL(rd, rn, rs, rm, condOp)
 
     return function ()
         -- 1. 等待预取指令
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC])
+        cpu.mmu:waitPrefetch32(gprs[15])
 
         -- 2. 条件执行判断
         if condOp and not condOp() then
@@ -1649,7 +1766,7 @@ function ARMCoreArm:constructUMLALS(rd, rn, rs, rm, condOp)
 
     return function ()
         -- 1. 等待预取指令
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC])
+        cpu.mmu:waitPrefetch32(gprs[15])
 
         -- 2. 条件执行判断
         if condOp and not condOp() then
@@ -1698,7 +1815,7 @@ function ARMCoreArm:constructUMULL(rd, rn, rs, rm, condOp)
     
     return function ()
         -- 1. 等待预取
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC])
+        cpu.mmu:waitPrefetch32(gprs[15])
         
         -- 2. 条件执行判断
         if condOp and not condOp() then
@@ -1737,7 +1854,7 @@ function ARMCoreArm:constructUMULLS(rd, rn, rs, rm, condOp)
     
     return function ()
         -- 1. 等待预取
-        cpu.mmu:waitPrefetch32(gprs[cpu.PC])
+        cpu.mmu:waitPrefetch32(gprs[15])
         
         -- 2. 条件执行判断
         if condOp and not condOp() then

@@ -187,7 +187,6 @@ function GameBoyAdvanceIO:initHandlers()
         -- SIO/Input Reads
         [self.SIOCNT] = function() return self.sio:readSIOCNT() end,
         [self.KEYINPUT] = function() 
-            self.keypad:pollGamepads()
             return self.keypad.currentDown
         end,
         [self.KEYCNT] = function()

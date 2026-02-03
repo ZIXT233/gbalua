@@ -82,6 +82,7 @@ function GBA:ctor()
     -- CPU 连接
     gba.cpu.mmu = gba.mmu
     gba.cpu.irq = gba.irq
+    gba.cpu.gba = gba
 
     -- MMU 连接
     gba.mmu.cpu = gba.cpu
@@ -112,7 +113,6 @@ function GBA:ctor()
     gba.seenFrame = false
     gba.seenSave = false
     gba.saveDir = "."  -- 存档目录，可配置
-    gba.doStep = function() return gba:waitFrame() end
     gba.video.vblankCallback = function()
         gba.seenFrame = true
     end
@@ -238,23 +238,23 @@ function GBA:setCanvas(canvas, drawCallback)
     self.video.drawCallback = drawCallback
 end
 
--- 与 gbajs 一致：未见到本帧 VBlank 时返回 true（继续跑），见到后返回 false（本帧结束）
-function GBA:waitFrame()
-    local seen = self.seenFrame
-    self.seenFrame = false
-    return not seen
+-- 跳帧渲染：0=不跳帧，1=每2帧渲染1帧，2=每3帧渲染1帧... 用于低性能设备提速
+function GBA:setFrameSkip(skip)
+    self.video:setFrameSkip(skip)
 end
 
--- 跑 CPU 直到完成一帧（即直到发生一次 VBlank，vblankCallback 被调用）
-function GBA:step()
-    while self:doStep() do
-        self.cpu:step()
-    end
+function GBA:getFrameSkip()
+    return self.video:getFrameSkip()
 end
+
+
+
+-- 跑 CPU 直到完成一帧（即直到发生一次 VBlank，vblankCallback 被调用）
+
 
 -- 与 gbajs 一致：一帧结束后处理存档（延迟写入磁盘，避免频繁 I/O）
 function GBA:advanceFrame()
-    self:step()
+    self.cpu:run_until_vblank()
     if self.seenSave then
         if not self.mmu:saveNeedsFlush() then
             self:storeSavedata()
