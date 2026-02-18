@@ -13,7 +13,7 @@ function ARMCoreThumb:constructADC(rd, rm)
     local waitstatesPrefetch32 = mmu.waitstatesPrefetch32;
     local gprs = cpu.gprs
     return function()
-        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[memory >> self.BASE_OFFSET];
+        cpu.cycles = cpu.cycles + 1 + waitstatesPrefetch32[gprs[15] >> 24];
         local m = (gprs[rm] & WB_32_MASK) + (cpu.cpsrC and 1 or 0)
         local oldD = gprs[rd]
         local d = (oldD & WB_32_MASK) + m
