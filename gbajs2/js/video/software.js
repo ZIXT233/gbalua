@@ -1542,7 +1542,6 @@ class GameBoyAdvanceSoftwareRenderer {
 				this.setBlendEnabled(this.LAYER_BACKDROP, this.target1[this.LAYER_BACKDROP] && this.windows[2].special, this.blendMode);
 			}
 			if (layer.bg) {
-				window.gba.WARN(window.gba.cpu.gprs[15]+ " BG" + layer.index + " affine params after scanline: sx=" + layer.sx + " sy=" + layer.sy);
 				layer.sx += layer.dmx;
 				layer.sy += layer.dmy;
 			}

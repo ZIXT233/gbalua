@@ -2,3 +2,5 @@
 *.sav
 *.asm
 *.elf
+tmc/
+gbajs2/

@@ -604,6 +604,7 @@ function GameBoyAdvanceIO:loadU16(offset)
 end
 
 function GameBoyAdvanceIO:store8(offset, value)
+    offset = offset & 0xffffffff
     -- Specific 8-bit writes
     if offset == self.WININ or offset == (self.WININ | 1) or
        offset == self.WINOUT or offset == (self.WINOUT | 1) then

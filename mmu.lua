@@ -49,30 +49,45 @@ function BIOSView:ctor(rom, offset)
 	self.icache = {};
 end
 function BIOSView:load8(offset)
+	if self.mmu.cpu.gprs[self.mmu.cpu.PC] >= 0x00004000 then
+		return self.mmu.badMemory:load8(offset);
+	end
 	if offset >= self.buffer.byteLength then
 		return -1;
 	end
 	return self.view:getInt8(offset);
 end
 function BIOSView:load16(offset)
+	if self.mmu.cpu.gprs[self.mmu.cpu.PC] >= 0x00004000 then
+		return self.mmu.badMemory:load16(offset);
+	end
 	if offset >= self.buffer.byteLength then
 		return -1;
 	end
 	return self.view:getInt16(offset, true);
 end
 function BIOSView:loadU8(offset)
+	if self.mmu.cpu.gprs[self.mmu.cpu.PC] >= 0x00004000 then
+		return self.mmu.badMemory:loadU8(offset);
+	end
 	if offset >= self.buffer.byteLength then
 		return -1;
 	end
 	return self.view:getUint8(offset);
 end
 function BIOSView:loadU16(offset)
+	if self.mmu.cpu.gprs[self.mmu.cpu.PC] >= 0x00004000 then
+		return self.mmu.badMemory:loadU16(offset);
+	end
 	if offset >= self.buffer.byteLength then
 		return -1;
 	end
 	return self.view:getUint16(offset, true);
 end
 function BIOSView:load32(offset)
+	if self.mmu.cpu.gprs[self.mmu.cpu.PC] >= 0x00004000 then
+		return self.mmu.badMemory:load32(offset);
+	end
 	if offset >= self.buffer.byteLength then
 		return -1;
 	end
@@ -114,7 +129,7 @@ end
 function BadMemory:load32(offset)
 	if self.cpu.execMode == self.cpu.MODE_ARM then
 		return self.mmu:load32(
-			self.cpu.gprs[self.cpu.gprs.PC] - self.cpu.instructionWidth
+			self.cpu.gprs[self.cpu.PC] - self.cpu.instructionWidth
 		);
 	else
 		local halfword = self.mmu:loadU16(
@@ -300,6 +315,7 @@ end
 function GameBoyAdvanceMMU:loadBios(bios, real) 
 	self.bios = BIOSView.new(bios);
 	self.bios.real = real;
+	self.bios.mmu = self;
 end
 
 function GameBoyAdvanceMMU:loadRomSimple(rom)
@@ -461,27 +477,32 @@ function GameBoyAdvanceMMU:loadSavedata(save)
 end
 
 function GameBoyAdvanceMMU:load8(offset) 
+	offset = offset & 0xffffffff
 	return self.memory[offset >> self.BASE_OFFSET]:load8(
 		offset & 0x00ffffff
 	);
 end
 function GameBoyAdvanceMMU:load16(offset) 
+	offset = offset & 0xffffffff
 	return self.memory[offset>> self.BASE_OFFSET]:load16(
 		offset & 0x00ffffff
 	);
 end
 
 function GameBoyAdvanceMMU:load32(offset) 
+	offset = offset & 0xffffffff
 	return self.memory[offset >> self.BASE_OFFSET]:load32(
 		offset & 0x00ffffff
 	);
 end
 function GameBoyAdvanceMMU:loadU8(offset) 
+	offset = offset & 0xffffffff
 	return self.memory[offset >> self.BASE_OFFSET]:loadU8(
 		offset & 0x00ffffff
 	);
 end
 function GameBoyAdvanceMMU:loadU16(offset) 
+	offset = offset & 0xffffffff
 	return self.memory[offset >> self.BASE_OFFSET]:loadU16(
 		offset & 0x00ffffff
 	);
@@ -520,15 +541,19 @@ end
 
 
 function GameBoyAdvanceMMU:wait(memory) 
+	memory = memory & 0xffffffff
 	self.cpu.cycles = self.cpu.cycles + 1 + self.waitstates[memory >> self.BASE_OFFSET];
 end
 function GameBoyAdvanceMMU:wait32(memory) 
+	memory = memory & 0xffffffff
 	self.cpu.cycles = self.cpu.cycles + 1 + self.waitstates32[memory >> self.BASE_OFFSET];
 end
 function GameBoyAdvanceMMU:waitSeq(memory) 
+	memory = memory & 0xffffffff
 	self.cpu.cycles = self.cpu.cycles + 1 + self.waitstatesSeq[memory >> self.BASE_OFFSET];
 end
 function GameBoyAdvanceMMU:waitSeq32(memory) 
+	memory = memory & 0xffffffff
 	self.cpu.cycles = self.cpu.cycles +
 		1 + self.waitstatesSeq32[memory >> self.BASE_OFFSET];
 end
